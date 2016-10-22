@@ -1,0 +1,23 @@
+{
+  "name": "rabbitmq-test",
+  "description": "",
+  "copyright": "",
+  "authors": [
+    "Ronny Spiegel"
+  ],
+  "license": "GPL-3.0",
+  "dependencies": {
+    "asynchronous": "==0.6.6"
+  },
+  "versions": ["built_with_dub"],
+  "configurations": [
+    {
+      "name": "client",
+      "targetType": "executable",
+      "targetName": "client",
+      "mainSourceFile": "src/test.d",
+      "excludedSourceFiles": [
+      ]
+    }
+  ]
+}
