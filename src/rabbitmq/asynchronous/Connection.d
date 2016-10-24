@@ -3,6 +3,10 @@ module rabbitmq.asynchronous.Connection;
 import asynchronous;
 import rabbitmq.control.Channel;
 import rabbitmq.control.Connection : ConnectionInterface = Connection;
+import rabbitmq.message.BasicConsumeOkFrame;
+import rabbitmq.message.BasicDeliverFrame;
+import rabbitmq.message.BasicHeaderFrame;
+import rabbitmq.message.BodyFrame;
 import rabbitmq.message.ChannelOpenFrame;
 import rabbitmq.message.ChannelOpenOkFrame;
 import rabbitmq.message.ConnectionOpenFrame;
@@ -28,6 +32,13 @@ class Connection : ConnectionInterface
         loop.createConnection(() => new Session(peer, self), hostname, port);
 
         return self;
+    }
+
+    public override bool process(BasicConsumeOkFrame frame)
+    {
+        writefln("Processing %s", frame);
+
+        return false;
     }
 
     public override bool process(ConnectionStartFrame frame)
@@ -71,6 +82,27 @@ class Connection : ConnectionInterface
     public override bool process(ExchangeDeclareOkFrame frame)
     {
         writefln("ExchangeDeclareOk");
+
+        return false;
+    }
+
+    public override bool process(BasicDeliverFrame frame)
+    {
+        writefln("Processing %s", frame);
+
+        return false;
+    }
+
+    public override bool process(BasicHeaderFrame frame)
+    {
+        writefln("Processing %s", frame);
+
+        return false;
+    }
+
+    public override bool process(BodyFrame frame)
+    {
+        writefln("Received: %s", frame.content);
 
         return false;
     }
@@ -140,14 +172,26 @@ class Session : Protocol
     {
         import std.stdio;
 
-        FrameReceiver frameReceiver = FrameReceiver(cast(const(ubyte)[])(data));
-
-        if (frameReceiver.complete)
+        while (true)
         {
+            FrameReceiver frameReceiver = FrameReceiver(cast(const(ubyte)[])(data));
+
+            if (!frameReceiver.complete)
+            {
+                return;
+            }
+
             writefln("Frame received: type = %s, channel = %s, %s bytes payload", frameReceiver.type,
                     frameReceiver.channel, frameReceiver.payloadSize);
 
             frameReceiver.process(this.connection_);
+
+            while (frameReceiver.nextByte != 0x0ce)
+            {
+            }
+            // enforce(frameReceiver.nextByte == 0xce, "Missing end of frame marker.");
+
+            data = frameReceiver.buffer_;
         }
     }
 
@@ -177,9 +221,9 @@ struct FrameReceiver
 {
     public ubyte type;
     public ushort channel;
-    public uint payloadSize;
+    public uint payloadSize = uint.max;
 
-    private const(ubyte)[] buffer_;
+    public const(ubyte)[] buffer_;
 
     @disable this();
 
@@ -191,7 +235,6 @@ struct FrameReceiver
 
         if (this.buffer_.length < 7)
         {
-            writeln("Buffer too short");
             return;
         }
 
@@ -242,6 +285,15 @@ struct FrameReceiver
     public uint nextDword()
     {
         return cast(uint)(this.nextWord * 65536 + this.nextWord);
+    }
+
+    public ulong nextQword()
+    {
+        ulong value = this.nextDword;
+        value = value << 32;
+        value += this.nextDword;
+
+        return value;
     }
 
     public string nextShortString()
@@ -326,6 +378,7 @@ struct FrameReceiver
             case 2:
                 return this.processHeaderFrame(connection);
             case 3:
+                return this.processBodyFrame(connection);
             case 4:
             case 8:
             default:
@@ -349,6 +402,8 @@ struct FrameReceiver
                 return this.processChannelFrame(connection);
             case 40:
                 return this.processExchangeFrame(connection);
+            case 60:
+                return this.processBasicFrame(connection);
             default:
                 enforce(0, "Received method frame with unknown class: %s".format(classId));
         }
@@ -358,7 +413,47 @@ struct FrameReceiver
 
     private bool processHeaderFrame(Connection connection)
     {
-        assert(0);
+        import rabbitmq.message.BasicHeaderFrame : BasicHeaderFrame;
+        import std.format : format;
+
+        ushort classId = this.nextWord;
+
+        switch (classId)
+        {
+            case 60:
+                return BasicHeaderFrame(this).process(connection);
+            default:
+                enforce(0, "Received header frame with unknown class: %s".format(classId));
+        }
+
+        return false;
+    }
+
+    private bool processBodyFrame(Connection connection)
+    {
+        import rabbitmq.message.BodyFrame : BodyFrame;
+
+        return BodyFrame(this).process(connection);
+    }
+
+    private bool processBasicFrame(Connection connection)
+    {
+        import rabbitmq.message.ConnectionStartFrame : ConnectionStartFrame;
+        import std.format : format;
+
+        ushort methodId = this.nextWord;
+
+        switch (methodId)
+        {
+            case 21:
+                return BasicConsumeOkFrame(this).process(connection);
+            case 60:
+                return BasicDeliverFrame(this).process(connection);
+            default:
+                enforce(0, "Received unknown basic frame method: %s".format(methodId));
+        }
+
+        return false;
     }
 
     private bool processConnectionFrame(Connection connection)

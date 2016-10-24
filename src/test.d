@@ -8,9 +8,24 @@ struct TestHelper
 }
 
 @Coroutine
+void subscribe(T)(T channel)
+{
+    void handleMessage(string messageBody)
+    {
+        import std.stdio : writefln;
+
+        writefln("GOT MESSAGE: %s", messageBody);
+    }
+
+    channel.basicConsume(a => handleMessage(a), "PASSENGER_INFORMATION");
+}
+
+@Coroutine
 void publishMessage(T)(T channel)
 {
     channel.basicPublish("MY_EXCHANGE", "1", "Hello World");
+
+    getEventLoop.callLater(1.seconds, () => subscribe(channel));
 }
 
 @Coroutine

@@ -1,5 +1,6 @@
 module rabbitmq.message.BasicFrame;
 
+import rabbitmq.asynchronous.Connection;
 import rabbitmq.message.MethodFrame;
 
 struct BasicFrame
@@ -8,6 +9,11 @@ struct BasicFrame
     alias methodFrame this;
 
     @disable this();
+
+    this(ref FrameReceiver frameReceiver, ushort methodId)
+    {
+        this.methodFrame = MethodFrame(frameReceiver.channel, frameReceiver.payloadSize, 60, methodId);
+    }
 
     this(ushort channel, uint size, ushort methodId)
     {
